@@ -1,0 +1,57 @@
+{
+  "telemetry": [
+    {
+      "dev_id": "VTUESP32-0091",
+      "lat": 13.0827,
+      "lon": 80.2707,
+      "speed_kmh": 42,
+      "sos_active": 0
+    },
+    {
+      "dev_id": "VTUESP32-0091",
+      "lat": 13.0835,
+      "lon": 80.2715,
+      "speed_kmh": 58,
+      "sos_active": 0
+    },
+    {
+      "dev_id": "VTUESP32-0091",
+      "lat": 13.0812,
+      "lon": 80.2698,
+      "speed_kmh": 0,
+      "sos_active": 0
+    },
+    {
+      "dev_id": "VTUESP32-0091",
+      "lat": 13.0798,
+      "lon": 80.2683,
+      "speed_kmh": 31,
+      "sos_active": 1
+    },
+    {
+      "dev_id": "VTUESP32-0091",
+      "lat": 13.0850,
+      "lon": 80.2730,
+      "speed_kmh": 67,
+      "sos_active": 0
+    }
+  ],
+  "stop_events": [
+    {
+      "dev_id": "VTUESP32-0091",
+      "location_name": "Chennai Central",
+      "lat": 13.0812,
+      "lon": 80.2698,
+      "arrived_at": 1750000000,
+      "duration_sec": 120
+    },
+    {
+      "dev_id": "VTUESP32-0091",
+      "location_name": "Anna Nagar Depot",
+      "lat": 13.0850,
+      "lon": 80.2100,
+      "arrived_at": 1750003600,
+      "duration_sec": null
+    }
+  ]
+}
