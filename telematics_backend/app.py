@@ -189,6 +189,14 @@ def validate(data, schema):
 def dashboard():
     return send_from_directory(os.path.dirname(__file__), "dashboard.html")
 
+@app.route("/dashboard.css")
+def serve_css():
+    return send_from_directory(os.path.dirname(__file__), "dashboard.css")
+
+@app.route("/dashboard.js")
+def serve_js():
+    return send_from_directory(os.path.dirname(__file__), "dashboard.js")
+
 
 # ---------------------------------------------------------------------------
 # Health check — Module 3 can ping this to confirm backend is up
