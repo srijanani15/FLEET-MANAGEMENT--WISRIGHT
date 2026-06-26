@@ -1,12 +1,12 @@
 """
 IoT Smart Vehicle Telematics Backend
 Module 4 - Sri Janani
-Flask backend with SQLite storage for vehicle telemetry data.
+Flask backend with MySQL storage for vehicle telemetry data.
 """
 
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
-import sqlite3
+import mysql.connector
 import time
 import math
 import os
@@ -14,7 +14,28 @@ import os
 app = Flask(__name__)
 CORS(app)
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "telemetry.db")
+# ---------------------------------------------------------------------------
+# MySQL configuration — loaded from .env file (never hardcode credentials)
+# ---------------------------------------------------------------------------
+
+def _load_env():
+    env_path = os.path.join(os.path.dirname(__file__), ".env")
+    if os.path.exists(env_path):
+        with open(env_path) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    os.environ.setdefault(k.strip(), v.strip())
+
+_load_env()
+
+DB_CONFIG = {
+    "host":     os.environ.get("MYSQL_HOST",     "localhost"),
+    "user":     os.environ.get("MYSQL_USER",     "root"),
+    "password": os.environ.get("MYSQL_PASSWORD", ""),
+    "database": os.environ.get("MYSQL_DATABASE", "telematics"),
+}
 
 # ---------------------------------------------------------------------------
 # Known bus stops / depots — geofence targets
@@ -35,11 +56,83 @@ STOPS = [
     {"name": "Porur Junction",    "lat": 13.0359, "lon": 80.1569},
 ]
 
-GEOFENCE_RADIUS_M = 300   # metres — vehicle must be within this to count as "at stop"
+GEOFENCE_RADIUS_M = 300
 
-# In-memory state: tracks which stop (if any) each device is currently inside
-# { dev_id: {"stop_name": str, "arrived_at": float, "event_id": int} }
+# In-memory geofence state per device
 _active_at: dict = {}
+
+
+# ---------------------------------------------------------------------------
+# Database helpers
+# ---------------------------------------------------------------------------
+
+def get_db():
+    """Return a new MySQL connection."""
+    return mysql.connector.connect(**DB_CONFIG)
+
+
+def query(sql, params=(), fetch="all"):
+    """Run a SELECT and return rows as list-of-dicts."""
+    conn = get_db()
+    try:
+        cur = conn.cursor(dictionary=True)
+        cur.execute(sql, params)
+        return cur.fetchall() if fetch == "all" else cur.fetchone()
+    finally:
+        cur.close()
+        conn.close()
+
+
+def execute(sql, params=(), lastrowid=False):
+    """Run an INSERT / UPDATE and commit. Returns lastrowid if requested."""
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        cur.execute(sql, params)
+        conn.commit()
+        return cur.lastrowid if lastrowid else None
+    finally:
+        cur.close()
+        conn.close()
+
+
+def init_db():
+    """Create the database and tables if they don't exist."""
+    # Connect without specifying the database first so we can CREATE it
+    cfg = {k: v for k, v in DB_CONFIG.items() if k != "database"}
+    conn = mysql.connector.connect(**cfg)
+    try:
+        cur = conn.cursor()
+        cur.execute(f"CREATE DATABASE IF NOT EXISTS `{DB_CONFIG['database']}`")
+        cur.execute(f"USE `{DB_CONFIG['database']}`")
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS telemetry (
+                id         INT AUTO_INCREMENT PRIMARY KEY,
+                dev_id     VARCHAR(64)  NOT NULL,
+                lat        DOUBLE       NOT NULL,
+                lon        DOUBLE       NOT NULL,
+                speed_kmh  DOUBLE       NOT NULL,
+                sos_active TINYINT(1)   NOT NULL,
+                timestamp  DOUBLE       NOT NULL,
+                INDEX idx_dev_ts (dev_id, timestamp)
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS stop_events (
+                id            INT AUTO_INCREMENT PRIMARY KEY,
+                dev_id        VARCHAR(64)  NOT NULL,
+                location_name VARCHAR(128) NOT NULL,
+                lat           DOUBLE       NOT NULL,
+                lon           DOUBLE       NOT NULL,
+                arrived_at    DOUBLE       NOT NULL,
+                duration_sec  DOUBLE,
+                INDEX idx_dev (dev_id)
+            )
+        """)
+        conn.commit()
+    finally:
+        cur.close()
+        conn.close()
 
 
 # ---------------------------------------------------------------------------
@@ -47,7 +140,6 @@ _active_at: dict = {}
 # ---------------------------------------------------------------------------
 
 def haversine_m(lat1, lon1, lat2, lon2) -> float:
-    """Return distance in metres between two GPS coordinates."""
     R = 6_371_000
     phi1, phi2 = math.radians(lat1), math.radians(lat2)
     dphi = math.radians(lat2 - lat1)
@@ -57,95 +149,42 @@ def haversine_m(lat1, lon1, lat2, lon2) -> float:
 
 
 def run_geofence(dev_id: str, lat: float, lon: float, ts: float):
-    """
-    Called after every telemetry insert.
-    Detects entry into / exit from known stops and writes to stop_events.
-    """
-    # Find nearest stop and its distance
     nearest, nearest_dist = None, float("inf")
     for stop in STOPS:
         d = haversine_m(lat, lon, stop["lat"], stop["lon"])
         if d < nearest_dist:
             nearest_dist, nearest = d, stop
 
-    in_zone  = nearest_dist <= GEOFENCE_RADIUS_M
-    was      = _active_at.get(dev_id)          # previous state for this device
+    in_zone = nearest_dist <= GEOFENCE_RADIUS_M
+    was = _active_at.get(dev_id)
 
     if in_zone:
         if was is None:
-            # Fresh arrival at a stop
-            with get_db() as conn:
-                cur = conn.execute(
-                    "INSERT INTO stop_events (dev_id, location_name, lat, lon, arrived_at, duration_sec) VALUES (?,?,?,?,?,?)",
-                    (dev_id, nearest["name"], nearest["lat"], nearest["lon"], ts, None),
-                )
-                event_id = cur.lastrowid
-                conn.commit()
+            event_id = execute(
+                "INSERT INTO stop_events (dev_id, location_name, lat, lon, arrived_at, duration_sec) VALUES (%s,%s,%s,%s,%s,%s)",
+                (dev_id, nearest["name"], nearest["lat"], nearest["lon"], ts, None),
+                lastrowid=True,
+            )
             _active_at[dev_id] = {"stop_name": nearest["name"], "arrived_at": ts, "event_id": event_id}
 
         elif was["stop_name"] != nearest["name"]:
-            # Moved directly from one stop zone into another — close old, open new
-            with get_db() as conn:
-                conn.execute(
-                    "UPDATE stop_events SET duration_sec=? WHERE id=?",
-                    (round(ts - was["arrived_at"], 1), was["event_id"]),
-                )
-                cur = conn.execute(
-                    "INSERT INTO stop_events (dev_id, location_name, lat, lon, arrived_at, duration_sec) VALUES (?,?,?,?,?,?)",
-                    (dev_id, nearest["name"], nearest["lat"], nearest["lon"], ts, None),
-                )
-                event_id = cur.lastrowid
-                conn.commit()
+            execute(
+                "UPDATE stop_events SET duration_sec=%s WHERE id=%s",
+                (round(ts - was["arrived_at"], 1), was["event_id"]),
+            )
+            event_id = execute(
+                "INSERT INTO stop_events (dev_id, location_name, lat, lon, arrived_at, duration_sec) VALUES (%s,%s,%s,%s,%s,%s)",
+                (dev_id, nearest["name"], nearest["lat"], nearest["lon"], ts, None),
+                lastrowid=True,
+            )
             _active_at[dev_id] = {"stop_name": nearest["name"], "arrived_at": ts, "event_id": event_id}
-        # else: still inside same zone — nothing to do
-
     else:
         if was is not None:
-            # Vehicle left the stop — stamp the departure duration
-            with get_db() as conn:
-                conn.execute(
-                    "UPDATE stop_events SET duration_sec=? WHERE id=?",
-                    (round(ts - was["arrived_at"], 1), was["event_id"]),
-                )
-                conn.commit()
+            execute(
+                "UPDATE stop_events SET duration_sec=%s WHERE id=%s",
+                (round(ts - was["arrived_at"], 1), was["event_id"]),
+            )
             del _active_at[dev_id]
-
-
-# ---------------------------------------------------------------------------
-# Database helpers
-# ---------------------------------------------------------------------------
-
-def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
-def init_db():
-    with get_db() as conn:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS telemetry (
-                id         INTEGER PRIMARY KEY AUTOINCREMENT,
-                dev_id     TEXT    NOT NULL,
-                lat        REAL    NOT NULL,
-                lon        REAL    NOT NULL,
-                speed_kmh  REAL    NOT NULL,
-                sos_active INTEGER NOT NULL CHECK(sos_active IN (0, 1)),
-                timestamp  REAL    NOT NULL
-            )
-        """)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS stop_events (
-                id            INTEGER PRIMARY KEY AUTOINCREMENT,
-                dev_id        TEXT  NOT NULL,
-                location_name TEXT  NOT NULL,
-                lat           REAL  NOT NULL,
-                lon           REAL  NOT NULL,
-                arrived_at    REAL  NOT NULL,
-                duration_sec  REAL
-            )
-        """)
-        conn.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -189,28 +228,27 @@ def validate(data, schema):
 def dashboard():
     return send_from_directory(os.path.dirname(__file__), "dashboard.html")
 
+@app.route("/mock")
+def mock_dashboard():
+    return send_from_directory(os.path.dirname(__file__), "mock.html")
+
 @app.route("/dashboard.css")
-def serve_css():
+def dashboard_css():
     return send_from_directory(os.path.dirname(__file__), "dashboard.css")
 
 @app.route("/dashboard.js")
-def serve_js():
+def dashboard_js():
     return send_from_directory(os.path.dirname(__file__), "dashboard.js")
 
 
 # ---------------------------------------------------------------------------
-# Health check — Module 3 can ping this to confirm backend is up
+# Health check
 # ---------------------------------------------------------------------------
 
 @app.route("/health", methods=["GET"])
 def health():
-    with get_db() as conn:
-        count = conn.execute("SELECT COUNT(*) FROM telemetry").fetchone()[0]
-    return jsonify({
-        "status": "ok",
-        "records": count,
-        "time": time.time()
-    }), 200
+    row = query("SELECT COUNT(*) AS cnt FROM telemetry", fetch="one")
+    return jsonify({"status": "ok", "records": row["cnt"], "time": time.time()}), 200
 
 
 # ---------------------------------------------------------------------------
@@ -219,13 +257,10 @@ def health():
 
 @app.route("/telemetry", methods=["POST"])
 def post_telemetry():
-    """Receive, validate, and store a telemetry packet from the vehicle (Module 3)."""
     data = request.get_json(silent=True)
-
     valid, error = validate(data, REQUIRED_TELEMETRY)
     if not valid:
         return jsonify({"status": "error", "message": error}), 400
-
     if data["sos_active"] not in (0, 1):
         return jsonify({"status": "error", "message": "Field 'sos_active' must be 0 or 1."}), 400
     if not (-90 <= data["lat"] <= 90):
@@ -236,135 +271,112 @@ def post_telemetry():
         return jsonify({"status": "error", "message": "Field 'speed_kmh' must be >= 0."}), 400
 
     ts = time.time()
-    with get_db() as conn:
-        conn.execute(
-            "INSERT INTO telemetry (dev_id, lat, lon, speed_kmh, sos_active, timestamp) VALUES (?,?,?,?,?,?)",
-            (data["dev_id"], data["lat"], data["lon"], data["speed_kmh"], data["sos_active"], ts),
-        )
-        conn.commit()
-
+    execute(
+        "INSERT INTO telemetry (dev_id, lat, lon, speed_kmh, sos_active, timestamp) VALUES (%s,%s,%s,%s,%s,%s)",
+        (data["dev_id"], data["lat"], data["lon"], data["speed_kmh"], data["sos_active"], ts),
+    )
     run_geofence(data["dev_id"], data["lat"], data["lon"], ts)
-
     return jsonify({"status": "ok", "timestamp": ts}), 201
 
 
 @app.route("/telemetry/latest", methods=["GET"])
 def get_latest():
-    """Return the most recent telemetry record for a given device."""
     dev_id = request.args.get("dev_id")
     if not dev_id:
         return jsonify({"status": "error", "message": "Query parameter 'dev_id' is required."}), 400
-
-    with get_db() as conn:
-        row = conn.execute(
-            "SELECT * FROM telemetry WHERE dev_id=? ORDER BY timestamp DESC LIMIT 1",
-            (dev_id,),
-        ).fetchone()
-
-    if row is None:
+    row = query(
+        "SELECT * FROM telemetry WHERE dev_id=%s ORDER BY timestamp DESC LIMIT 1",
+        (dev_id,), fetch="one"
+    )
+    if not row:
         return jsonify({"status": "error", "message": f"No records found for dev_id '{dev_id}'."}), 404
-
-    return jsonify({"status": "ok", "data": dict(row)}), 200
+    return jsonify({"status": "ok", "data": row}), 200
 
 
 @app.route("/telemetry/history", methods=["GET"])
 def get_history():
-    """Return last 50 records for a device, newest first."""
     dev_id = request.args.get("dev_id")
     if not dev_id:
         return jsonify({"status": "error", "message": "Query parameter 'dev_id' is required."}), 400
+    rows = query(
+        "SELECT * FROM telemetry WHERE dev_id=%s ORDER BY timestamp DESC LIMIT 50",
+        (dev_id,)
+    )
+    return jsonify({"status": "ok", "data": rows}), 200
 
-    with get_db() as conn:
-        rows = conn.execute(
-            "SELECT * FROM telemetry WHERE dev_id=? ORDER BY timestamp DESC LIMIT 50",
-            (dev_id,),
-        ).fetchall()
 
-    return jsonify({"status": "ok", "data": [dict(r) for r in rows]}), 200
+@app.route("/telemetry/all-latest", methods=["GET"])
+def get_all_latest():
+    """Return the most recent telemetry record for every known device."""
+    rows = query(
+        """SELECT t.* FROM telemetry t
+           INNER JOIN (
+             SELECT dev_id, MAX(timestamp) AS ts FROM telemetry GROUP BY dev_id
+           ) m ON t.dev_id = m.dev_id AND t.timestamp = m.ts
+           ORDER BY t.timestamp DESC"""
+    )
+    return jsonify({"status": "ok", "data": rows}), 200
 
 
 @app.route("/telemetry/devices", methods=["GET"])
 def get_devices():
-    """Return all known device IDs and their latest timestamp — used by dashboard to auto-detect."""
-    with get_db() as conn:
-        rows = conn.execute(
-            "SELECT dev_id, MAX(timestamp) as last_seen, COUNT(*) as total FROM telemetry GROUP BY dev_id ORDER BY last_seen DESC"
-        ).fetchall()
-    return jsonify({"status": "ok", "data": [dict(r) for r in rows]}), 200
+    rows = query(
+        "SELECT dev_id, MAX(timestamp) AS last_seen, COUNT(*) AS total FROM telemetry GROUP BY dev_id ORDER BY last_seen DESC"
+    )
+    return jsonify({"status": "ok", "data": rows}), 200
 
 
 # ---------------------------------------------------------------------------
-# Stop events endpoints
+# Stop event endpoints
 # ---------------------------------------------------------------------------
 
 @app.route("/telemetry/stops/config", methods=["GET"])
 def get_stops_config():
-    """Return the full list of defined geofence stops (for map markers)."""
     return jsonify({"status": "ok", "data": STOPS, "radius_m": GEOFENCE_RADIUS_M}), 200
 
 
 @app.route("/telemetry/stops", methods=["GET"])
 def get_stops():
-    """Return geofence stop events for a device."""
     dev_id = request.args.get("dev_id")
     if not dev_id:
         return jsonify({"status": "error", "message": "Query parameter 'dev_id' is required."}), 400
-
-    with get_db() as conn:
-        rows = conn.execute(
-            "SELECT * FROM stop_events WHERE dev_id=? ORDER BY arrived_at DESC",
-            (dev_id,),
-        ).fetchall()
-
-    return jsonify({"status": "ok", "data": [dict(r) for r in rows]}), 200
+    rows = query(
+        "SELECT * FROM stop_events WHERE dev_id=%s ORDER BY arrived_at DESC",
+        (dev_id,)
+    )
+    return jsonify({"status": "ok", "data": rows}), 200
 
 
 @app.route("/telemetry/stats", methods=["GET"])
 def get_stats():
-    """Return aggregate stats for a device: avg/max speed, total distance estimate."""
     dev_id = request.args.get("dev_id")
     if not dev_id:
         return jsonify({"status": "error", "message": "Query parameter 'dev_id' is required."}), 400
-
-    with get_db() as conn:
-        row = conn.execute(
-            """SELECT COUNT(*) as total,
-                      ROUND(AVG(speed_kmh), 1) as avg_speed,
-                      ROUND(MAX(speed_kmh), 1) as max_speed,
-                      MIN(timestamp) as first_seen,
-                      MAX(timestamp) as last_seen
-               FROM telemetry WHERE dev_id=?""",
-            (dev_id,)
-        ).fetchone()
-
-    if row is None or row["total"] == 0:
+    row = query(
+        """SELECT COUNT(*) AS total,
+                  ROUND(AVG(speed_kmh), 1) AS avg_speed,
+                  ROUND(MAX(speed_kmh), 1) AS max_speed,
+                  MIN(timestamp) AS first_seen,
+                  MAX(timestamp) AS last_seen
+           FROM telemetry WHERE dev_id=%s""",
+        (dev_id,), fetch="one"
+    )
+    if not row or not row["total"]:
         return jsonify({"status": "error", "message": f"No records for dev_id '{dev_id}'."}), 404
-
-    return jsonify({"status": "ok", "data": dict(row)}), 200
+    return jsonify({"status": "ok", "data": row}), 200
 
 
 @app.route("/telemetry/stops", methods=["POST"])
 def post_stop():
-    """
-    Log a geofence stop event sent by Module 3.
-    Required fields: dev_id, location_name, lat, lon, arrived_at
-    Optional: duration_sec (send when vehicle leaves the stop)
-    """
     data = request.get_json(silent=True)
-
     valid, error = validate(data, REQUIRED_STOP)
     if not valid:
         return jsonify({"status": "error", "message": error}), 400
-
-    with get_db() as conn:
-        conn.execute(
-            """INSERT INTO stop_events (dev_id, location_name, lat, lon, arrived_at, duration_sec)
-               VALUES (?,?,?,?,?,?)""",
-            (data["dev_id"], data["location_name"], data["lat"], data["lon"],
-             data["arrived_at"], data.get("duration_sec")),
-        )
-        conn.commit()
-
+    execute(
+        "INSERT INTO stop_events (dev_id, location_name, lat, lon, arrived_at, duration_sec) VALUES (%s,%s,%s,%s,%s,%s)",
+        (data["dev_id"], data["location_name"], data["lat"], data["lon"],
+         data["arrived_at"], data.get("duration_sec")),
+    )
     return jsonify({"status": "ok"}), 201
 
 
@@ -376,8 +388,8 @@ if __name__ == "__main__":
     init_db()
     print("=" * 50)
     print("  Telematics Backend — Module 4 (Sri Janani)")
+    print("  Database : MySQL —", DB_CONFIG["host"], "/", DB_CONFIG["database"])
     print("=" * 50)
-    print(f"  Database : {DB_PATH}")
     print(f"  Dashboard: http://0.0.0.0:5000/")
     print(f"  Health   : http://0.0.0.0:5000/health")
     print("=" * 50)

@@ -1,217 +1,184 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>FleetTrack — Live Telematics</title>
-
-  <!-- Fonts -->
-  <link rel="preconnect" href="https://fonts.googleapis.com"/>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Orbitron:wght@600;700&display=swap" rel="stylesheet"/>
-
-  <!-- Map -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
-  <!-- Charts -->
-  <script src="https://cdn.jsdelivr.net/npm/apexcharts@3.48.0/dist/apexcharts.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-
-  <!-- React 18 (UMD — no build step needed) -->
-  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-
-  <!-- Styles -->
-  <link rel="stylesheet" href="/dashboard.css"/>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
+<title>Smart Transport — Live Tracking</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link rel="stylesheet" href="/dashboard.css"/>
 </head>
 <body>
 
-<div id="sos-ring"></div>
-<div id="sos-bar">⚠ SOS ALERT — EMERGENCY IN PROGRESS ⚠</div>
-<div id="toast" role="alert" aria-live="polite"></div>
+<!-- ══════════════════════════════════
+     VIEW 1 — HOME
+══════════════════════════════════ -->
+<div id="homeView" class="view active">
 
-<!-- HEADER -->
-<header>
-  <div class="logo">
-    <div class="logo-icon" aria-hidden="true">
-      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+  <nav class="h-nav">
+    <div class="h-logo">
+      <span class="bus-icon">🚌</span>
+      <div>
+        <div class="org-name">Smart Transport Dept.</div>
+        <div class="org-sub">IoT Live Bus Tracker · GPS Powered</div>
+      </div>
     </div>
-    <div>
-      <div class="logo-text">FleetTrack</div>
-      <span class="logo-sub">Live Telematics Dashboard · Module 4</span>
+    <div class="h-clock" id="homeClock">--:--:--</div>
+    <div id="backendBadge" style="font-size:.65rem;font-weight:600;color:#fca5a5;white-space:nowrap;margin-left:8px">🔴 Offline</div>
+  </nav>
+
+  <div class="hero">
+    <div class="hero-tag">Live GPS · Updated every second</div>
+    <h1>Know where your<br><span>bus is</span> right now</h1>
+    <p>Six routes across Chennai. On-board ESP32 trackers send GPS coordinates every 1.1 s — see your bus before you leave home.</p>
+    <div class="hero-search">
+      <input type="text" id="srchIn" placeholder="🔍  Enter stop or route name…" oninput="if(this.value.length>=4)doSearch()"/>
+      <button onclick="doSearch()">Search</button>
     </div>
   </div>
-  <!-- React mounts HeaderPills here -->
-  <div id="react-header-pills"></div>
-</header>
 
-<!-- BODY -->
-<div class="body-wrap">
+  <div class="stats-strip">
+    <div class="stat-item"><div class="stat-num" id="sBusTotal">6</div><div class="stat-lbl">Buses Active</div></div>
+    <div class="stat-item"><div class="stat-num" id="sMoving">—</div><div class="stat-lbl">Moving</div></div>
+    <div class="stat-item"><div class="stat-num" id="sStopped">—</div><div class="stat-lbl">Stopped</div></div>
+    <div class="stat-item"><div class="stat-num" id="sSos" style="color:#B91C1C">—</div><div class="stat-lbl">SOS Alert</div></div>
+  </div>
 
-  <!-- SIDEBAR -->
-  <div id="sidebar">
+  <div class="date-row" id="dateRow"></div>
+  <div class="trips-section" id="tripsSection"></div>
 
-    <!-- Vehicle banner -->
-    <div class="v-banner">
-      <div class="v-id" id="v-id-lbl">VTUESP32-0091</div>
-      <div class="v-meta">
-        <div class="v-coords" id="v-coords">—, —</div>
-        <div class="v-badge offline" id="v-badge">OFFLINE</div>
+  <div class="rec-footer">© 2026 Smart Transport Dept. &nbsp;|&nbsp; Helpline: 044-2680-1999 &nbsp;|&nbsp; Mon – Sat · 7 AM – 6 PM</div>
+</div>
+
+
+<!-- ══════════════════════════════════
+     VIEW 2 — BUS LIST
+══════════════════════════════════ -->
+<div id="busListView" class="view">
+  <div class="list-hdr">
+    <button class="back-btn" onclick="goHome()">← Back</button>
+    <div>
+      <div class="list-hdr-title" id="listTitle">Buses</div>
+      <div class="list-hdr-sub" id="listSub">Tap "Track" on any bus to see live location</div>
+    </div>
+  </div>
+
+  <div class="filter-row">
+    <span class="filter-lbl">Filter :</span>
+    <button class="ftag on"  onclick="applyFilter('all',this)">All</button>
+    <button class="ftag"     onclick="applyFilter('moving',this)">▶ Moving</button>
+    <button class="ftag"     onclick="applyFilter('stopped',this)">⏸ Stopped</button>
+    <button class="ftag"     onclick="applyFilter('sos',this)">⚠ SOS</button>
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr>
+        <th>Bus No.</th><th>Route</th><th>Status</th>
+        <th>Speed</th><th>Location</th><th>Track</th>
+      </tr></thead>
+      <tbody id="busTbody"></tbody>
+    </table>
+  </div>
+
+  <div class="rec-footer">© 2026 Smart Transport Dept. &nbsp;|&nbsp; Helpline: 044-2680-1999</div>
+</div>
+
+
+<!-- ══════════════════════════════════
+     VIEW 3 — LIVE TRACKER
+══════════════════════════════════ -->
+<div id="trackerView" class="view">
+  <div class="trk-topbar">
+    <button class="back-btn" onclick="leaveTracker()">← Back</button>
+    <div>
+      <div class="trk-name" id="trkName">—</div>
+      <div class="trk-sub"  id="trkSub">—</div>
+    </div>
+    <div class="live-pill"><span class="pdot"></span> LIVE</div>
+  </div>
+
+  <div class="trk-body">
+    <div class="map-col">
+      <div id="liveMap"></div>
+      <div class="hud-spd" id="hudSpd">
+        <div class="hud-lbl">Axle Speed</div>
+        <div><span class="hud-num" id="hudNum">0</span><span class="hud-unit"> km/h</span></div>
+        <div class="sbar-w"><div class="sbar" id="hudBar"></div></div>
       </div>
+      <div class="hud-sos" id="hudSos"><span>🔴</span><span>SOS ACTIVE</span></div>
     </div>
 
-    <!-- Speed (ApexCharts gauge + Chart.js sparkline) -->
-    <div class="spd-section">
-      <div class="spd-hdr">
-        <span class="sec-lbl">Speed</span>
-        <span class="spd-badge" id="spd-badge" style="color:var(--txt3);border-color:rgba(100,116,139,.2);background:rgba(100,116,139,.07)">OFFLINE</span>
-      </div>
-      <div id="apex-gauge"></div>
-      <div id="spark-wrap"><canvas id="sparkCanvas"></canvas></div>
-    </div>
+    <div class="tele-panel">
 
-    <!-- Session stats — React mounts StatCards here -->
-    <div class="sec-div"><div class="sec-div-line"></div><span class="sec-div-lbl">Session</span><div class="sec-div-line"></div></div>
-    <div id="react-stat-cards"></div>
-
-    <!-- SOS card -->
-    <div id="sos-card">
-      <div class="sos-icon" aria-hidden="true">
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-      </div>
-      <div class="sos-lbl"><h4>SOS ACTIVE</h4><p>Emergency signal received</p></div>
-    </div>
-
-    <!-- All-time DB stats -->
-    <div class="sec-div"><div class="sec-div-line"></div><span class="sec-div-lbl">All-Time DB</span><div class="sec-div-line"></div></div>
-    <div class="db-grid">
-      <div class="db-card"><div class="db-lbl">Total Records</div><div class="db-val" style="color:var(--cyan)" id="db-total">—</div></div>
-      <div class="db-card"><div class="db-lbl">Avg Speed</div><div class="db-val" style="color:var(--green)" id="db-avg">—</div></div>
-      <div class="db-card"><div class="db-lbl">Max Speed</div><div class="db-val" style="color:var(--amber)" id="db-max">—</div></div>
-      <div class="db-card"><div class="db-lbl">First Seen</div><div class="db-val" style="color:var(--txt2);font-size:.72rem" id="db-first">—</div></div>
-    </div>
-
-    <!-- System health -->
-    <div class="sec-div"><div class="sec-div-line"></div><span class="sec-div-lbl">System Health</span><div class="sec-div-line"></div></div>
-    <div class="health-list">
-      <div class="h-row"><div class="h-dot" id="h-dot-backend"></div><span class="h-lbl">Backend Server</span><span class="h-val" id="h-val-backend">Checking…</span></div>
-      <div class="h-row"><div class="h-dot" id="h-dot-db"></div><span class="h-lbl">Database</span><span class="h-val" id="h-val-db">—</span></div>
-      <div class="h-row"><div class="h-dot" id="h-dot-device"></div><span class="h-lbl">Device Signal</span><span class="h-val" id="h-val-device">—</span></div>
-      <div class="h-row"><div class="h-dot ok" id="h-dot-poll"></div><span class="h-lbl">Auto-Refresh</span><span class="h-val" id="h-val-poll">Every 3s</span></div>
-    </div>
-
-    <!-- Controls -->
-    <div class="sec-div"><div class="sec-div-line"></div><span class="sec-div-lbl">Controls</span><div class="sec-div-line"></div></div>
-    <div class="ctrl-wrap">
-      <button class="btn primary" onclick="poll()" aria-label="Refresh now">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-        Refresh Now
-      </button>
-      <div class="btn-row">
-        <button class="btn" id="btn-pause" onclick="togglePause()" aria-label="Pause auto-refresh">
-          <svg id="pause-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
-          <span id="pause-lbl">Pause</span>
-        </button>
-        <button class="btn" onclick="centerMap()" aria-label="Center map on vehicle">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/></svg>
-          Center
-        </button>
-      </div>
-      <div class="btn-row">
-        <button class="btn" onclick="toggleTrail()" aria-label="Toggle trail">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 3c0 5 4 5 4 10s-4 5-4 10M9 3c0 5 4 5 4 10s-4 5-4 10M15 3c0 5 4 5 4 10s-4 5-4 10"/></svg>
-          Trail
-        </button>
-        <button class="btn danger" onclick="clearTrail()" aria-label="Clear trail">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
-          Clear
-        </button>
-      </div>
-      <div class="btn-row">
-        <button class="btn" id="btn-stops" onclick="toggleStopMarkers()" aria-label="Show bus stop markers">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-          <span id="stops-btn-lbl">Show Stops</span>
-        </button>
-        <button class="btn success" onclick="exportCSV()" aria-label="Export history CSV">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-          Export CSV
-        </button>
-      </div>
-    </div>
-
-  </div><!-- /sidebar -->
-
-  <!-- MAIN -->
-  <div class="main-wrap">
-
-    <button id="sidebar-toggle" onclick="toggleSidebar()" aria-label="Toggle sidebar">
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
-    </button>
-
-    <div id="map"></div>
-
-    <!-- Wait overlay -->
-    <div id="wait-overlay">
-      <div class="bdots"><div class="bdot"></div><div class="bdot"></div><div class="bdot"></div></div>
-      <div class="wait-txt">Waiting for vehicle data…</div>
-    </div>
-
-    <!-- Bottom panel -->
-    <div id="bottom-panel">
-      <div class="tab-bar">
-        <div class="tab active" onclick="switchTab('stops')" id="tab-stops">
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-          Geofence Stops <span class="tab-badge" id="stops-cnt">0</span>
-        </div>
-        <div class="tab" onclick="switchTab('history')" id="tab-history">
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-          History Log <span class="tab-badge" id="hist-cnt">0</span>
-        </div>
-        <div class="tab" onclick="switchTab('stats')" id="tab-stats">
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
-          Live Stats
-        </div>
-        <div class="tab-spacer"></div>
-        <div style="font-size:.63rem;color:var(--txt3);padding:0 6px;align-self:center">FleetTrack v3</div>
+      <div class="ts">
+        <div class="ttag">Device</div>
+        <div class="dev-id"  id="tId">—</div>
+        <div class="dev-sync"><span class="sync-dot"></span>SYNCED</div>
+        <div class="dev-ts"  id="tTs">—</div>
       </div>
 
-      <!-- Stops pane -->
-      <div class="tab-pane active" id="pane-stops">
-        <div class="stops-info-bar">
-          <span style="font-size:.66rem;color:var(--txt3)">Auto-detected from <span id="stops-cfg-count" style="color:var(--cyan)">—</span> geofence zones · radius <span id="stops-radius" style="color:var(--cyan)">—</span></span>
-          <span id="stops-active-badge" style="display:none;font-size:.64rem;font-weight:700;padding:2px 9px;border-radius:10px;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.28);color:var(--green)">● AT STOP</span>
-        </div>
-        <table>
-          <thead><tr><th>#</th><th>Stop Name</th><th>Arrived</th><th>Duration</th><th>Status</th></tr></thead>
-          <tbody id="stops-body"><tr><td colspan="5" class="nodata">Geofence active — waiting for vehicle to enter a stop zone.</td></tr></tbody>
-        </table>
-      </div>
-
-      <!-- History pane -->
-      <div class="tab-pane" id="pane-history">
-        <table>
-          <thead><tr><th>#</th><th>Time</th><th>Latitude</th><th>Longitude</th><th>Speed</th><th>SOS</th></tr></thead>
-          <tbody id="hist-body"><tr><td colspan="6" class="nodata">No history yet.</td></tr></tbody>
-        </table>
-      </div>
-
-      <!-- Stats pane -->
-      <div class="tab-pane" id="pane-stats">
-        <div class="stats-grid">
-          <div class="tc"><label>Session Time</label><div class="tv c" id="st-time">—</div></div>
-          <div class="tc"><label>Distance</label><div class="tv g" id="st-dist">—</div></div>
-          <div class="tc"><label>Session Max</label><div class="tv a" id="st-max">—</div></div>
-          <div class="tc"><label>Session Avg</label><div class="tv w" id="st-avg">—</div></div>
-          <div class="tc"><label>DB Records</label><div class="tv c" id="st-total">—</div></div>
-          <div class="tc"><label>DB Max Speed</label><div class="tv a" id="st-dbmax">—</div></div>
-          <div class="tc"><label>DB Avg Speed</label><div class="tv w" id="st-dbavg">—</div></div>
-          <div class="tc"><label>SOS Events</label><div class="tv" id="st-sos" style="color:var(--red)">0</div></div>
+      <div class="ts">
+        <div class="ttag">⚡ Axle Speed — LM393 Optical Encoder</div>
+        <div class="spd-hero">
+          <div style="flex:1">
+            <div class="spd-num" id="tSpd">0</div>
+            <div class="spd-unit">km/h</div>
+            <div class="spd-bar-w"><div class="spd-bar" id="tSpdBar"></div></div>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:center;gap:5px">
+            <span class="mpill mpill-mv" id="tMpill">▶ Moving</span>
+            <div class="enc-note">LM393<br>Encoder</div>
+          </div>
         </div>
       </div>
-    </div>
 
-  </div><!-- /main -->
-</div><!-- /body -->
+      <div class="ts">
+        <div class="ttag">📍 GNSS Coordinates</div>
+        <div class="cg">
+          <div class="cbox"><div class="ckey">Latitude</div><div class="cval" id="tLat">—</div></div>
+          <div class="cbox"><div class="ckey">Longitude</div><div class="cval" id="tLon">—</div></div>
+        </div>
+      </div>
+
+      <div class="ts">
+        <div class="ttag">🚨 SOS Alarm</div>
+        <div class="sos-card sos-safe" id="tSosCard">
+          <div class="sos-ico" id="tSosIco">🟢</div>
+          <div>
+            <div class="sos-st" id="tSosSt" style="color:#3fb950">ARMED / SAFE</div>
+            <div class="sos-sub" id="tSosSub">No emergency detected</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="ts">
+        <div class="ttag">🏁 Geofence</div>
+        <div class="geo-card">
+          <div class="geo-ico" id="tGeoIco">🛣️</div>
+          <div>
+            <div class="geo-nm"  id="tGeoNm">Outside all geofences</div>
+            <div class="geo-sb"  id="tGeoSb">En route</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="ts">
+        <div class="ttag">📦 Telemetry Packet</div>
+        <div class="json-b" id="tJson">{}</div>
+      </div>
+
+      <div class="ts">
+        <div class="ttag">📋 Landmark Log</div>
+        <div id="tLog"><div style="font-size:.73rem;color:#8b949e">No events yet…</div></div>
+      </div>
+
+    </div>
+  </div>
+</div>
 
 <script src="/dashboard.js" defer></script>
 </body>
