@@ -47,21 +47,23 @@ DEVICE_TOKEN = os.environ.get("DEVICE_TOKEN", "")
 _rate_buckets: dict = {}          # dev_id → {"tokens": float, "last": float}
 _RATE_MAX     = 2.0               # burst capacity
 _RATE_REFILL  = 2.0               # tokens added per second
+_rate_lock    = __import__("threading").Lock()
 
 
 def _check_rate(dev_id: str) -> bool:
-    """Return True if request is allowed, False if rate-limited."""
+    """Return True if request is allowed, False if rate-limited. Thread-safe."""
     now = time.time()
-    if dev_id not in _rate_buckets:
-        _rate_buckets[dev_id] = {"tokens": _RATE_MAX, "last": now}
-    b = _rate_buckets[dev_id]
-    elapsed = now - b["last"]
-    b["tokens"] = min(_RATE_MAX, b["tokens"] + elapsed * _RATE_REFILL)
-    b["last"] = now
-    if b["tokens"] >= 1.0:
-        b["tokens"] -= 1.0
-        return True
-    return False
+    with _rate_lock:
+        if dev_id not in _rate_buckets:
+            _rate_buckets[dev_id] = {"tokens": _RATE_MAX, "last": now}
+        b = _rate_buckets[dev_id]
+        elapsed = now - b["last"]
+        b["tokens"] = min(_RATE_MAX, b["tokens"] + elapsed * _RATE_REFILL)
+        b["last"] = now
+        if b["tokens"] >= 1.0:
+            b["tokens"] -= 1.0
+            return True
+        return False
 
 # ---------------------------------------------------------------------------
 # Known bus stops / depots — geofence targets
@@ -129,6 +131,7 @@ def init_db():
     # Connect without specifying the database first so we can CREATE it
     cfg = {k: v for k, v in DB_CONFIG.items() if k != "database"}
     conn = mysql.connector.connect(**cfg)
+    cur = None
     try:
         cur = conn.cursor()
         cur.execute(f"CREATE DATABASE IF NOT EXISTS `{DB_CONFIG['database']}`")
@@ -159,7 +162,7 @@ def init_db():
         """)
         conn.commit()
     finally:
-        cur.close()
+        if cur: cur.close()
         conn.close()
 
 

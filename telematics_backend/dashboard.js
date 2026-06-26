@@ -121,7 +121,7 @@ async function syncFromAPI() {
       sim[id].lat   = t.lat;
       sim[id].lon   = t.lon;
       sim[id].speed = parseFloat(t.speed_kmh) || 0;
-      sim[id].sos   = t.sos_active ? 1 : 0;
+      sim[id].sos   = (t.sos_active && !sosAcknowledged.has(id)) ? 1 : 0;
       sim[id].ts    = new Date(t.timestamp * 1000).toISOString();
       sim[id].stop  = sim[id].speed < 6;
       sim[id].lastUpdate = Date.now();
@@ -148,9 +148,16 @@ setInterval(syncFromAPI, 3000);
 syncFromAPI();
 loadStopsConfig();
 
+let _stopFetchController = null;
+
 async function fetchStopEvents(id) {
+  if (_stopFetchController) _stopFetchController.abort();
+  _stopFetchController = new AbortController();
+  const signal = AbortSignal.any
+    ? AbortSignal.any([_stopFetchController.signal, AbortSignal.timeout(2000)])
+    : _stopFetchController.signal;
   try {
-    const r = await fetch(`${BACKEND}/telemetry/stops?dev_id=${id}`, {signal: AbortSignal.timeout(2000)});
+    const r = await fetch(`${BACKEND}/telemetry/stops?dev_id=${id}`, {signal});
     if (!r.ok) return null;
     return (await r.json()).data || [];
   } catch { return null; }
@@ -318,7 +325,7 @@ function updateHomeStrips() {
     const fillEl = document.getElementById('hsfill-' + id);
     const busEl  = document.getElementById('hsbus-'  + id);
     const spdEl  = document.getElementById('hsspd-'  + id);
-    if (!fillEl) return;
+    if (!fillEl || !busEl || !spdEl) return;
     fillEl.style.width = spdPct + '%';
     busEl.style.left   = Math.min(93, spdPct) + '%';
     const spdClass = b.speed > 70 ? 'fast' : b.speed > 40 ? 'mid' : '';
@@ -501,12 +508,18 @@ function openTracker(id) {
 
 function leaveTracker() {
   if (tickId) { clearInterval(tickId); tickId = null; }
+  if (lmarker) { lmarker.remove(); lmarker = null; }
+  if (ltrail)  { ltrail.setLatLngs([]); }
   location.hash = '';
   showV('busListView');
 }
 
-// US-31: acknowledge SOS — clears local SOS state
+// Tracks buses whose SOS the operator has acknowledged — suppresses backend restore
+const sosAcknowledged = new Set();
+
+// US-31: acknowledge SOS — latches suppression so syncFromAPI can't restore it
 function acknowledgeSOSFor(id) {
+  sosAcknowledged.add(id);
   if (sim[id]) sim[id].sos = 0;
   updateTele(id);
 }
@@ -622,6 +635,7 @@ function updateTele(id) {
 
   // Landmark stop log — always from real backend
   fetchStopEvents(id).then(stops => {
+    if (curBus !== id) return; // discard stale response from a previous bus
     const logEl = document.getElementById('tLog');
     if (!logEl) return;
     if (!stops || !stops.length) {
