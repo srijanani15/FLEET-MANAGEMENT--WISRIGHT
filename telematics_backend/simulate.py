@@ -185,18 +185,18 @@ def run_bus(dev_id):
 # ---------------------------------------------------------------------------
 
 def main():
+    global BACKEND
     parser = argparse.ArgumentParser(description="FleetTrack multi-bus simulator")
     parser.add_argument("--backend", default=BACKEND, help="Backend URL (default: %(default)s)")
     parser.add_argument("--buses", nargs="+", metavar="ID",
                         help="Bus numbers to run, e.g. --buses 91 92 (default: all 6)")
     args = parser.parse_args()
 
-    global BACKEND
     BACKEND = args.backend.rstrip("/")
 
     all_ids = list(ROUTES.keys())
     if args.buses:
-        ids = [f"VTUESP32-00{b.lstrip('0') or '0'}" if len(b) <= 2 else b for b in args.buses]
+        ids = [f"VTUESP32-{b.zfill(4)}" if len(b) <= 4 else b for b in args.buses]
         ids = [i for i in ids if i in ROUTES]
         if not ids:
             print("No matching bus IDs. Use 91–96 or full IDs like VTUESP32-0091.")

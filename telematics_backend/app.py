@@ -10,7 +10,6 @@ import mysql.connector
 import time
 import math
 import os
-import collections
 
 app = Flask(__name__)
 CORS(app)
@@ -101,25 +100,27 @@ def get_db():
 def query(sql, params=(), fetch="all"):
     """Run a SELECT and return rows as list-of-dicts."""
     conn = get_db()
+    cur = None
     try:
         cur = conn.cursor(dictionary=True)
         cur.execute(sql, params)
         return cur.fetchall() if fetch == "all" else cur.fetchone()
     finally:
-        cur.close()
+        if cur: cur.close()
         conn.close()
 
 
 def execute(sql, params=(), lastrowid=False):
     """Run an INSERT / UPDATE and commit. Returns lastrowid if requested."""
     conn = get_db()
+    cur = None
     try:
         cur = conn.cursor()
         cur.execute(sql, params)
         conn.commit()
         return cur.lastrowid if lastrowid else None
     finally:
-        cur.close()
+        if cur: cur.close()
         conn.close()
 
 

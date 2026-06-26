@@ -3,7 +3,10 @@
    No simulation. All state comes from /telemetry/all-latest.
 ═══════════════════════════════════════════════════════════════ */
 
-const BACKEND = 'http://localhost:5000';
+// Auto-detect backend: same host as the page (works for localhost AND LAN IP)
+const BACKEND = window.location.port
+  ? `${window.location.protocol}//${window.location.hostname}:${window.location.port}`
+  : `${window.location.protocol}//${window.location.hostname}`;
 let backendOnline = false;
 
 /* ── Bus display metadata (config only — not data) ── */
@@ -450,7 +453,7 @@ function busIcon(color, sos) {
 
 // US-21: ETA — nearest stop ahead, using real GPS speed and stop positions
 function etaToNextStop(b) {
-  if (!b.lat || b.speed < 2) return null;
+  if (b.lat === null || b.speed < 2) return null;
   let best = null, bestDist = Infinity;
   GEO.forEach(g => {
     if (b.geo && g.name === b.geo.name) return; // skip stop we're currently at
@@ -519,11 +522,14 @@ function updateTele(id) {
   const isOffline   = !hasData || (Date.now() - b.lastUpdate) > 30000;
 
   if (hasData) {
-    lmarker.setLatLng([b.lat, b.lon]);
-    lmarker.setIcon(busIcon(m.color, isSos));
+    if (!lmarker) {
+      lmarker = L.marker([b.lat, b.lon], {icon: busIcon(m.color, isSos)}).addTo(lmap);
+    } else {
+      lmarker.setLatLng([b.lat, b.lon]);
+      lmarker.setIcon(busIcon(m.color, isSos));
+    }
     lmarker.bindPopup(`<b>${m.num}</b><br>Speed: <b>${b.speed} km/h</b><br>${b.geo ? 'At: ' + b.geo.name : 'En route'}`);
-    ltrail.setLatLngs(b.trail);
-    ltrail.setStyle({color: m.color});
+    if (ltrail) { ltrail.setLatLngs(b.trail); ltrail.setStyle({color: m.color}); }
     lmap.panTo([b.lat, b.lon], {animate: true, duration: .5});
   }
 
