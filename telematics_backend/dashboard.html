@@ -31,6 +31,7 @@
       <div id="homeDate" style="font-size:.58rem;color:rgba(255,255,255,.6);font-family:'IBM Plex Mono',monospace;white-space:nowrap"></div>
     </div>
     <div id="backendBadge" style="font-size:.65rem;font-weight:600;color:#fca5a5;white-space:nowrap;margin-left:8px">🔴 Offline</div>
+    <button class="bustest-nav-btn" onclick="openBusTest()" title="Open Bus Live Test panel">🚌 Bus Test</button>
   </nav>
 
   <div class="hero">
@@ -216,6 +217,121 @@
   <div id="tripLogContent" style="padding:16px 14px"></div>
   <div class="rec-footer">© 2026 Smart Transport Dept. &nbsp;|&nbsp; Trip Tracking System</div>
 </div>
+
+<!-- ══════════════════════════════════
+     VIEW 5 — BUS LIVE TEST
+     Dedicated ESP32 hardware testing
+══════════════════════════════════ -->
+<div id="busTestView" class="view">
+
+  <!-- Top bar -->
+  <div class="bt-topbar">
+    <button class="back-btn" onclick="leaveBusTest()">← Back</button>
+    <div class="bt-title-block">
+      <span class="bt-title">🚌 Bus Live Test</span>
+      <span class="bt-subtitle">Real-time ESP32 + A7670C telemetry</span>
+    </div>
+    <div class="bt-id-block">
+      <input id="btBusIdInput" type="text" class="bt-id-input" value="BUS01" placeholder="Bus ID…"/>
+      <button class="bt-go-btn" onclick="bustest_start()">Track ▶</button>
+    </div>
+    <div class="live-pill" style="margin-left:8px"><span class="pdot"></span> LIVE</div>
+  </div>
+
+  <!-- Status bar -->
+  <div class="bt-status-bar">
+    <span id="btStatus" class="bt-status bt-offline">● No signal</span>
+    <span id="btLastSeen" class="bt-lastseen">Waiting for device…</span>
+    <span id="btSosAlert" class="bt-sos-flash" style="display:none">🚨 SOS ACTIVE</span>
+    <span id="btRefreshCountdown" class="bt-countdown">⟳ 5s</span>
+  </div>
+
+  <!-- Main split layout -->
+  <div class="bt-body">
+
+    <!-- Left: Leaflet map -->
+    <div class="bt-map-col">
+      <div id="btMap"></div>
+      <div class="bt-map-overlay" id="btMapOverlay">
+        <div class="bt-map-overlay-icon">📡</div>
+        <div class="bt-map-overlay-text">Awaiting GPS signal…</div>
+        <div class="bt-map-overlay-sub">Data will appear when ESP32 connects</div>
+      </div>
+    </div>
+
+    <!-- Right: Telemetry panel -->
+    <div class="bt-tele-col">
+
+      <!-- GPS Coordinates -->
+      <div class="bt-card">
+        <div class="bt-card-hdr">📍 GNSS Position</div>
+        <div class="bt-coord-grid">
+          <div class="bt-coord-row">
+            <span class="bt-ck">Latitude</span>
+            <span class="bt-cv mono" id="btLat">—</span>
+          </div>
+          <div class="bt-coord-row">
+            <span class="bt-ck">Longitude</span>
+            <span class="bt-cv mono" id="btLon">—</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Speed gauge -->
+      <div class="bt-card">
+        <div class="bt-card-hdr">⚡ Axle Speed</div>
+        <div class="bt-spd-row">
+          <span class="bt-spd-num" id="btSpeed">0</span>
+          <span class="bt-spd-unit">km/h</span>
+          <span class="bt-mpill" id="btMpill">● —</span>
+        </div>
+        <div class="bt-sbar-w"><div class="bt-sbar" id="btSpdBar" style="width:0%"></div></div>
+      </div>
+
+      <!-- Satellite info -->
+      <div class="bt-card">
+        <div class="bt-card-hdr">🛰 Satellite &amp; Quality</div>
+        <div class="bt-info-grid">
+          <div class="bt-info-row"><span class="bt-ck">Satellites</span><span class="bt-cv" id="btSats">—</span></div>
+          <div class="bt-info-row"><span class="bt-ck">HDOP</span><span class="bt-cv" id="btHdop">—</span></div>
+          <div class="bt-info-row"><span class="bt-ck">Altitude</span><span class="bt-cv" id="btAlt">—</span></div>
+        </div>
+      </div>
+
+      <!-- Date & Time -->
+      <div class="bt-card">
+        <div class="bt-card-hdr">📅 GPS Date &amp; Time (UTC)</div>
+        <div class="bt-info-grid">
+          <div class="bt-info-row"><span class="bt-ck">Date</span><span class="bt-cv mono" id="btDate">—</span></div>
+          <div class="bt-info-row"><span class="bt-ck">Time</span><span class="bt-cv mono" id="btTime">—</span></div>
+        </div>
+      </div>
+
+      <!-- SOS card -->
+      <div class="bt-card" id="btSosCard">
+        <div class="bt-card-hdr">🚨 SOS Alarm</div>
+        <div class="bt-sos-inner">
+          <span class="bt-sos-ico" id="btSosIco">🟢</span>
+          <div>
+            <div class="bt-sos-st" id="btSosSt" style="color:#3fb950">ARMED / SAFE</div>
+            <div class="bt-sos-sub" id="btSosSub">No emergency detected</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Raw packet -->
+      <div class="bt-card">
+        <div class="bt-card-hdr">📦 Raw Telemetry Packet</div>
+        <pre class="bt-json" id="btJson">{
+  "status": "waiting for device..."
+}</pre>
+      </div>
+
+    </div><!-- /.bt-tele-col -->
+  </div><!-- /.bt-body -->
+
+  <div class="rec-footer">© 2026 Smart Transport Dept. &nbsp;|&nbsp; Bus Live Test — ESP32 + A7670C 4G</div>
+</div><!-- /#busTestView -->
 
 <script src="/dashboard.js" defer></script>
 </body>

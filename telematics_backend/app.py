@@ -325,6 +325,22 @@ def init_db():
         """)
 
         conn.commit()
+
+        # Add extended GPS columns if they don't exist yet (safe to re-run)
+        extended_cols = [
+            ("altitude",   "DOUBLE       DEFAULT NULL"),
+            ("satellites", "INT          DEFAULT NULL"),
+            ("hdop",       "DOUBLE       DEFAULT NULL"),
+            ("gps_date",   "VARCHAR(10)  DEFAULT NULL"),
+            ("gps_time",   "VARCHAR(8)   DEFAULT NULL"),
+        ]
+        for col_name, col_def in extended_cols:
+            try:
+                cur.execute(f"ALTER TABLE telemetry ADD COLUMN {col_name} {col_def}")
+                conn.commit()
+            except mysql.connector.Error:
+                pass  # Column already exists — skip
+
     finally:
         if cur:  cur.close()
         conn.close()
@@ -606,9 +622,17 @@ def post_telemetry():
 
     ts = time.time()
     execute(
-        "INSERT INTO telemetry (dev_id, lat, lon, speed_kmh, sos_active, timestamp) "
-        "VALUES (%s,%s,%s,%s,%s,%s)",
-        (dev_id, data["lat"], data["lon"], data["speed_kmh"], data["sos_active"], ts),
+        "INSERT INTO telemetry "
+        "(dev_id, lat, lon, speed_kmh, sos_active, timestamp, "
+        " altitude, satellites, hdop, gps_date, gps_time) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+        (dev_id, data["lat"], data["lon"], data["speed_kmh"],
+         data["sos_active"], ts,
+         data.get("altitude"),
+         data.get("satellites"),
+         data.get("hdop"),
+         data.get("gps_date"),
+         data.get("gps_time")),
     )
     run_geofence(dev_id, data["lat"], data["lon"], ts)
     _update_trip_tracking(dev_id, data["lat"], data["lon"], ts)

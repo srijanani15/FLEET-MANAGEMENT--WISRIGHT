@@ -1129,3 +1129,171 @@ function leaveTripLog() {
   if (curBus) showV('trackerView');
   else goHome();
 }
+
+/* ═══════════════════════════════════════════════════════
+   VIEW 5 — BUS LIVE TEST
+   Tracks a single ESP32 device by Bus ID in real time
+═══════════════════════════════════════════════════════ */
+
+let btMap = null, btMarker = null, btTrail = null, btTickId = null;
+let btBusId = 'BUS01', btTrailPts = [];
+let btCountdown = 5, btCountdownId = null;
+
+function openBusTest() {
+  showV('busTestView');
+  btBusId = (document.getElementById('btBusIdInput') || {}).value || 'BUS01';
+  bustest_initMap();
+  bustest_start();
+}
+
+function leaveBusTest() {
+  bustest_stop();
+  goHome();
+}
+
+function bustest_start() {
+  bustest_stop();
+  btBusId = (document.getElementById('btBusIdInput') || {}).value || 'BUS01';
+  btTrailPts = [];
+  bustest_refresh();
+  btTickId = setInterval(bustest_refresh, 5000);
+  _btCountdownTick();
+}
+
+function bustest_stop() {
+  if (btTickId)      { clearInterval(btTickId);      btTickId = null; }
+  if (btCountdownId) { clearInterval(btCountdownId); btCountdownId = null; }
+}
+
+function _btCountdownTick() {
+  if (btCountdownId) clearInterval(btCountdownId);
+  btCountdown = 5;
+  const el = document.getElementById('btRefreshCountdown');
+  if (el) el.textContent = '⟳ 5s';
+  btCountdownId = setInterval(() => {
+    btCountdown -= 1;
+    if (btCountdown < 0) btCountdown = 5;
+    if (el) el.textContent = `⟳ ${btCountdown}s`;
+  }, 1000);
+}
+
+function bustest_initMap() {
+  if (btMap) { btMap.remove(); btMap = null; btMarker = null; btTrail = null; }
+  const el = document.getElementById('btMap');
+  if (!el) return;
+  btMap = L.map('btMap', { zoomControl: true }).setView([13.0694, 80.1948], 14);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors', maxZoom: 19
+  }).addTo(btMap);
+  btTrail = L.polyline([], { color: '#58a6ff', weight: 3, opacity: 0.7 }).addTo(btMap);
+}
+
+async function bustest_refresh() {
+  _btCountdownTick();
+  try {
+    const r = await fetch(`/telemetry/latest?dev_id=${encodeURIComponent(btBusId)}`);
+    if (!r.ok) { bustest_setStatus(false, null); return; }
+    const j = await r.json();
+    const d = j.data || j;
+    if (!d || d.lat == null) { bustest_setStatus(false, null); return; }
+    bustest_updateUI(d);
+    bustest_setStatus(true, d.timestamp || d.ts || null);
+  } catch (_) {
+    bustest_setStatus(false, null);
+  }
+}
+
+function bustest_setStatus(online, ts) {
+  const stEl = document.getElementById('btStatus');
+  const lsEl = document.getElementById('btLastSeen');
+  if (stEl) {
+    stEl.textContent = online ? '● Online' : '● No signal';
+    stEl.className   = 'bt-status ' + (online ? 'bt-online' : 'bt-offline');
+  }
+  if (lsEl) {
+    if (online && ts) {
+      lsEl.textContent = 'Last seen: ' + new Date(ts).toLocaleTimeString();
+    } else {
+      lsEl.textContent = 'Waiting for device…';
+    }
+  }
+}
+
+function bustest_updateUI(t) {
+  const lat = parseFloat(t.lat), lon = parseFloat(t.lon);
+  const spd = parseFloat(t.speed_kmh) || 0;
+  const sos = !!t.sos_active;
+
+  // Coordinates
+  const latEl = document.getElementById('btLat');
+  const lonEl = document.getElementById('btLon');
+  if (latEl) latEl.textContent = isNaN(lat) ? '—' : lat.toFixed(6);
+  if (lonEl) lonEl.textContent = isNaN(lon) ? '—' : lon.toFixed(6);
+
+  // Speed
+  const spdEl = document.getElementById('btSpeed');
+  const barEl = document.getElementById('btSpdBar');
+  const mpEl  = document.getElementById('btMpill');
+  if (spdEl) spdEl.textContent = spd.toFixed(1);
+  if (barEl) barEl.style.width = Math.min(spd / 80 * 100, 100) + '%';
+  if (mpEl) {
+    mpEl.textContent = spd > 1 ? '▶ Moving' : '⏸ Stopped';
+    mpEl.style.color = spd > 1 ? '#3fb950' : '#8b949e';
+  }
+
+  // Satellites / HDOP / Altitude
+  const satsEl = document.getElementById('btSats');
+  const hdopEl = document.getElementById('btHdop');
+  const altEl  = document.getElementById('btAlt');
+  if (satsEl) satsEl.textContent = t.satellites != null ? t.satellites : '—';
+  if (hdopEl) hdopEl.textContent = t.hdop       != null ? parseFloat(t.hdop).toFixed(1) : '—';
+  if (altEl)  altEl.textContent  = t.altitude   != null ? parseFloat(t.altitude).toFixed(1) + ' m' : '—';
+
+  // GPS date / time
+  const dtEl = document.getElementById('btDate');
+  const tmEl = document.getElementById('btTime');
+  if (dtEl) dtEl.textContent = t.gps_date || '—';
+  if (tmEl) tmEl.textContent = t.gps_time || '—';
+
+  // SOS
+  const sosAlert = document.getElementById('btSosAlert');
+  const sosCard  = document.getElementById('btSosCard');
+  const sosIco   = document.getElementById('btSosIco');
+  const sosSt    = document.getElementById('btSosSt');
+  const sosSub   = document.getElementById('btSosSub');
+  if (sosAlert) sosAlert.style.display = sos ? 'inline-flex' : 'none';
+  if (sosIco)  sosIco.textContent = sos ? '🔴' : '🟢';
+  if (sosSt) {
+    sosSt.textContent = sos ? '🚨 SOS ACTIVE' : 'ARMED / SAFE';
+    sosSt.style.color = sos ? '#f85149' : '#3fb950';
+  }
+  if (sosSub)  sosSub.textContent = sos ? 'Emergency button pressed!' : 'No emergency detected';
+  if (sosCard) sosCard.style.background = sos ? 'rgba(248,81,73,.08)' : '';
+
+  // Raw JSON
+  const jsonEl = document.getElementById('btJson');
+  if (jsonEl) jsonEl.textContent = JSON.stringify(t, null, 2);
+
+  // Map — move marker and trail
+  if (btMap && !isNaN(lat) && !isNaN(lon)) {
+    const overlay = document.getElementById('btMapOverlay');
+    if (overlay) overlay.style.display = 'none';
+
+    const latlng = [lat, lon];
+    btTrailPts.push(latlng);
+    if (btTrailPts.length > 200) btTrailPts.shift();
+    if (btTrail) btTrail.setLatLngs(btTrailPts);
+
+    if (!btMarker) {
+      const icon = L.divIcon({
+        className: '',
+        html: '<div class="bt-bus-icon">🚌</div>',
+        iconSize: [36, 36], iconAnchor: [18, 18],
+      });
+      btMarker = L.marker(latlng, { icon }).addTo(btMap);
+    } else {
+      btMarker.setLatLng(latlng);
+    }
+    btMap.panTo(latlng);
+  }
+}

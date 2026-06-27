@@ -593,3 +593,141 @@ tbody td b{color:#fafaf9}
   .date-row button{padding:8px 10px;font-size:.72rem}
   thead th,tbody td{padding:7px 7px;font-size:.74rem}
 }
+
+/* ══════════════════════════════════════════════
+   VIEW 5 — BUS LIVE TEST
+══════════════════════════════════════════════ */
+
+/* Nav button */
+.bustest-nav-btn{
+  margin-left:8px;padding:6px 12px;
+  background:rgba(88,166,255,.15);border:1px solid rgba(88,166,255,.4);
+  color:#58a6ff;border-radius:7px;font-size:.75rem;font-weight:600;
+  transition:background .2s;white-space:nowrap;
+}
+.bustest-nav-btn:hover{background:rgba(88,166,255,.28)}
+
+/* Top bar */
+.bt-topbar{
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  padding:10px 14px;background:#161b22;
+  border-bottom:1px solid #30363d;
+}
+.bt-title-block{display:flex;flex-direction:column;gap:1px}
+.bt-title{font-size:1rem;font-weight:700;color:#e6edf3}
+.bt-subtitle{font-size:.68rem;color:#8b949e}
+.bt-id-block{display:flex;gap:6px;margin-left:auto;align-items:center}
+.bt-id-input{
+  padding:5px 10px;border-radius:7px;border:1px solid #30363d;
+  background:#0d1117;color:#e6edf3;font-size:.8rem;width:110px;
+  font-family:'IBM Plex Mono',monospace;
+}
+.bt-id-input:focus{outline:none;border-color:#58a6ff}
+.bt-go-btn{
+  padding:5px 14px;border-radius:7px;border:none;
+  background:#238636;color:#fff;font-size:.8rem;font-weight:600;
+  transition:background .2s;
+}
+.bt-go-btn:hover{background:#2ea043}
+
+/* Status bar */
+.bt-status-bar{
+  display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  padding:6px 14px;background:#0d1117;border-bottom:1px solid #21262d;
+  font-size:.74rem;
+}
+.bt-status{font-weight:600}
+.bt-online{color:#3fb950}
+.bt-offline{color:#f85149}
+.bt-lastseen{color:#8b949e}
+.bt-sos-flash{
+  display:inline-flex;align-items:center;gap:5px;
+  color:#f85149;font-weight:700;font-size:.78rem;
+  animation:bt-sos-blink 1s steps(1) infinite;
+}
+@keyframes bt-sos-blink{0%,100%{opacity:1}50%{opacity:0}}
+.bt-countdown{margin-left:auto;color:#8b949e;font-family:'IBM Plex Mono',monospace;font-size:.72rem}
+
+/* Body split */
+.bt-body{
+  display:grid;grid-template-columns:1fr 380px;
+  height:calc(100vh - 118px);overflow:hidden;
+}
+
+/* Map column */
+.bt-map-col{position:relative;height:100%}
+#btMap{width:100%;height:100%}
+.bt-map-overlay{
+  position:absolute;inset:0;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  background:rgba(13,17,23,.85);z-index:500;gap:10px;pointer-events:none;
+}
+.bt-map-overlay-icon{font-size:2.5rem}
+.bt-map-overlay-text{color:#e6edf3;font-weight:600;font-size:1rem}
+.bt-map-overlay-sub{color:#8b949e;font-size:.78rem}
+
+/* Bus icon on map */
+.bt-bus-icon{
+  font-size:28px;line-height:1;
+  filter:drop-shadow(0 2px 4px rgba(0,0,0,.7));
+}
+
+/* Telemetry column */
+.bt-tele-col{
+  background:#0d1117;border-left:1px solid #21262d;
+  overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:8px;
+}
+.bt-tele-col::-webkit-scrollbar{width:5px}
+.bt-tele-col::-webkit-scrollbar-thumb{background:#30363d;border-radius:3px}
+
+/* Cards */
+.bt-card{
+  background:#161b22;border:1px solid #30363d;border-radius:10px;
+  padding:10px 12px;
+}
+.bt-card-hdr{font-size:.7rem;font-weight:700;color:#8b949e;margin-bottom:8px;letter-spacing:.04em}
+
+/* Coord grid */
+.bt-coord-grid{display:flex;flex-direction:column;gap:6px}
+.bt-coord-row{display:flex;justify-content:space-between;align-items:center}
+.bt-ck{font-size:.72rem;color:#8b949e}
+.bt-cv{font-size:.85rem;color:#e6edf3;font-weight:600}
+.bt-cv.mono{font-family:'IBM Plex Mono',monospace}
+
+/* Speed */
+.bt-spd-row{display:flex;align-items:baseline;gap:6px;margin-bottom:6px}
+.bt-spd-num{font-size:2rem;font-weight:700;color:#58a6ff;font-family:'IBM Plex Mono',monospace}
+.bt-spd-unit{font-size:.8rem;color:#8b949e}
+.bt-mpill{font-size:.72rem;font-weight:600;margin-left:auto}
+.bt-sbar-w{height:4px;background:#21262d;border-radius:2px;overflow:hidden}
+.bt-sbar{height:100%;background:linear-gradient(90deg,#1f6feb,#58a6ff);border-radius:2px;transition:width .5s ease}
+
+/* Info grid (sats/hdop/alt, date/time) */
+.bt-info-grid{display:flex;flex-direction:column;gap:5px}
+.bt-info-row{display:flex;justify-content:space-between}
+
+/* SOS card */
+.bt-sos-inner{display:flex;align-items:center;gap:10px}
+.bt-sos-ico{font-size:1.6rem}
+.bt-sos-st{font-weight:700;font-size:.85rem}
+.bt-sos-sub{font-size:.72rem;color:#8b949e;margin-top:2px}
+
+/* Raw JSON */
+.bt-json{
+  font-family:'IBM Plex Mono',monospace;font-size:.7rem;color:#7ee787;
+  background:#0d1117;border-radius:6px;padding:8px;overflow-x:auto;
+  white-space:pre;max-height:200px;overflow-y:auto;
+}
+.bt-json::-webkit-scrollbar{width:4px;height:4px}
+.bt-json::-webkit-scrollbar-thumb{background:#30363d;border-radius:2px}
+
+/* Responsive */
+@media(max-width:900px){
+  .bt-body{grid-template-columns:1fr;grid-template-rows:55vh auto}
+  .bt-tele-col{height:auto;max-height:none}
+}
+@media(max-width:600px){
+  .bt-topbar{padding:8px 10px;gap:6px}
+  .bt-title{font-size:.88rem}
+  .bt-id-input{width:85px}
+}
