@@ -572,6 +572,15 @@ function openTracker(id) {
     initMap(lat, lon, zoom);
     lmarker = L.marker([lat, lon], { icon: busIcon(m.color, !!(b && b.sos)) }).addTo(lmap);
 
+    // Immediately fetch fresh GPS so map opens on the correct position, not stale data
+    syncFromAPI().then(() => {
+      const fresh = sim[id];
+      if (fresh && fresh.lat !== null) {
+        lmarker.setLatLng([fresh.lat, fresh.lon]);
+        lmap.setView([fresh.lat, fresh.lon], 16);
+      }
+      updateTele(id);
+    });
     updateTele(id);
     currentTripId = null;
     _updateTripPanelEmpty();
@@ -626,9 +635,8 @@ function updateTele(id) {
     lmarker.setIcon(busIcon(m.color, isSos));
     lmarker.bindPopup(`<b>${m.num}</b><br>Speed: <b>${b.speed} km/h</b><br>${b.geo ? 'At: ' + b.geo.name : 'En route'}`);
     if (ltrail) { ltrail.setLatLngs(b.trail); ltrail.setStyle({color: m.color}); }
-    if (!lmap.getBounds().pad(-0.2).contains([b.lat, b.lon])) {
-      lmap.panTo([b.lat, b.lon], {animate: true, duration: 0.5});
-    }
+    // Always pan to keep the bus centred — GPS updates every 3s so movement is small
+    lmap.panTo([b.lat, b.lon], {animate: true, duration: 0.8});
   }
 
   // HUD — US-28: red + OVERSPEED label when >70
