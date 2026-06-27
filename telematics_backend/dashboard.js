@@ -31,23 +31,12 @@ const sim = {};
 let selFilter = 'all', curList = 'all', curBus = null, tickId = null;
 
 /* ═══════════════════════════════
-   GEOFENCES — loaded from backend
+   GEOFENCES — loaded exclusively from backend /telemetry/stops/config
+   No fallback hardcoded coordinates — real stops only.
 ═══════════════════════════════ */
-let GEO = [
-  {id:'chennai_central',   name:'Chennai Central',   lat:13.0827,lon:80.2707,r:300},
-  {id:'egmore',            name:'Egmore',            lat:13.0784,lon:80.2617,r:300},
-  {id:'royapettah',        name:'Royapettah',        lat:13.0524,lon:80.2623,r:300},
-  {id:'t_nagar_bus_stand', name:'T Nagar Bus Stand', lat:13.0418,lon:80.2341,r:300},
-  {id:'vadapalani',        name:'Vadapalani',        lat:13.0524,lon:80.2121,r:300},
-  {id:'anna_nagar',        name:'Anna Nagar',        lat:13.0850,lon:80.2101,r:300},
-  {id:'guindy',            name:'Guindy',            lat:13.0067,lon:80.2206,r:300},
-  {id:'adyar',             name:'Adyar',             lat:13.0012,lon:80.2565,r:300},
-  {id:'koyambedu',         name:'Koyambedu',         lat:13.0694,lon:80.1948,r:300},
-  {id:'perambur',          name:'Perambur',          lat:13.1175,lon:80.2479,r:300},
-  {id:'avadi',             name:'Avadi',             lat:13.1132,lon:80.1050,r:300},
-  {id:'porur_junction',    name:'Porur Junction',    lat:13.0359,lon:80.1569,r:300},
-];
+let GEO = [];
 let geoLayerGroup = null;
+let mapInit = false;
 
 async function loadStopsConfig() {
   try {
@@ -232,26 +221,20 @@ function buildDates() {
   buildTrips(today);
 }
 
-const STRIP_COLORS = {
-  'VTUESP32-0091':'red','VTUESP32-0092':'grn',
-  'VTUESP32-0093':'blue','VTUESP32-0094':'red',
-  'VTUESP32-0095':'amb','VTUESP32-0096':'pnk'
-};
-
 /* Strip progress bar = speed percentage (0 → 80 km/h scale).
-   Shows real speed from backend; no fake route progress. */
+   Color taken from dynamically assigned BMETA[id].color (hex). */
 function stripHtml(id) {
   const b = sim[id], m = BMETA[id];
   const hasData = b.lastUpdate > 0;
-  const clr = STRIP_COLORS[id] || 'red';
-  const spdPct = hasData ? spct(b.speed) : 0;
-  const spdTxt = b.sos ? '🚨 SOS' : hasData ? (b.speed + ' km/h') : 'No signal';
+  const color   = m ? m.color : '#58a6ff';
+  const spdPct  = hasData ? spct(b.speed) : 0;
+  const spdTxt  = b.sos ? '🚨 SOS' : hasData ? (b.speed + ' km/h') : 'No signal';
   const spdClass = b.speed > 70 ? 'fast' : b.speed > 40 ? 'mid' : '';
   return `<div class="tc-strip" id="hs-${id}">
-    <div class="tc-strip-label">${m.num}</div>
+    <div class="tc-strip-label">${m ? m.num : id}</div>
     <div class="tc-strip-wrap">
       <div class="tc-strip-track"></div>
-      <div class="tc-strip-fill ${clr}" id="hsfill-${id}" style="width:${spdPct}%"></div>
+      <div class="tc-strip-fill" id="hsfill-${id}" style="width:${spdPct}%;background:${color}"></div>
       <div class="tc-strip-bus" id="hsbus-${id}" style="left:${Math.min(93,spdPct)}%">🚌</div>
     </div>
     <div class="tc-strip-spd ${spdClass}" id="hsspd-${id}">${spdTxt}</div>
@@ -302,18 +285,18 @@ function buildTrips(date) {
   const allPmIds = Object.keys(BMETA).filter(id => BMETA[id].trip === '3pm');
 
   function scheduleStrip(id) {
-    const m   = BMETA[id];
-    const b   = sim[id];
-    const clr = STRIP_COLORS[id] || 'red';
+    const m      = BMETA[id];
+    const b      = sim[id];
+    const color  = m ? m.color : '#58a6ff';
     const hasData = b && b.lastUpdate > 0;
     const spdPct  = hasData ? spct(b.speed) : 0;
     const spdTxt  = b && b.sos ? '🚨 SOS' : hasData ? (b.speed + ' km/h') : 'Scheduled';
     const spdClass = (b && b.speed > 70) ? 'fast' : (b && b.speed > 40) ? 'mid' : '';
     return `<div class="tc-strip" id="hs-${id}">
-      <div class="tc-strip-label">${m.num}</div>
+      <div class="tc-strip-label">${m ? m.num : id}</div>
       <div class="tc-strip-wrap">
         <div class="tc-strip-track"></div>
-        <div class="tc-strip-fill ${clr}" id="hsfill-${id}" style="width:${spdPct}%"></div>
+        <div class="tc-strip-fill" id="hsfill-${id}" style="width:${spdPct}%;background:${color}"></div>
         <div class="tc-strip-bus" id="hsbus-${id}" style="left:${Math.min(93,spdPct)}%">🚌</div>
       </div>
       <div class="tc-strip-spd ${spdClass}" id="hsspd-${id}">${spdTxt}</div>
@@ -499,6 +482,7 @@ let lmap = null, lmarker = null, ltrail = null;
 
 function destroyMap() {
   if (lmap) { lmap.remove(); lmap = null; }
+  mapInit = false;
   lmarker = null; ltrail = null; geoLayerGroup = null;
 }
 
@@ -508,6 +492,7 @@ function initMap(lat, lon, zoom) {
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
     { attribution: '© OpenStreetMap', maxZoom: 19 }).addTo(lmap);
   geoLayerGroup = L.layerGroup().addTo(lmap);
+  mapInit = true;
   refreshMapGeofences();
   ltrail = L.polyline([], { color: '#58a6ff', weight: 3, opacity: .6, dashArray: '5 5' }).addTo(lmap);
   lmap.setView([lat, lon], zoom);
@@ -568,9 +553,10 @@ function openTracker(id) {
   requestAnimationFrame(() => requestAnimationFrame(() => {
     const b = sim[id];
     const hasData = b && b.lastUpdate > 0 && b.lat !== null;
-    const lat  = hasData ? b.lat  : 13.0694;
-    const lon  = hasData ? b.lon  : 80.1948;
-    const zoom = hasData ? 16 : 13;
+    // Default view: Chennai area — replaced immediately once real GPS arrives
+    const lat  = hasData ? b.lat  : (GEO.length ? GEO[0].lat : 13.0694);
+    const lon  = hasData ? b.lon  : (GEO.length ? GEO[0].lon : 80.1948);
+    const zoom = hasData ? 16 : 12;
 
     initMap(lat, lon, zoom);
     lmarker = L.marker([lat, lon], { icon: busIcon(m.color, !!(b && b.sos)) }).addTo(lmap);
@@ -604,8 +590,10 @@ function openTracker(id) {
 function leaveTracker() {
   if (tickId) { clearInterval(tickId); tickId = null; }
   destroyMap();
-  // Reset trip UI — trip stays active on backend, just hidden
-  currentTripId = null;
+  // Reset trip UI — trip stays active on backend, just hidden here
+  currentTripId    = null;
+  _activeRouteKey  = null;
+  _routeStopsCache = null;
   const btn = document.getElementById('tripActionBtn');
   if (btn) { btn.textContent = '▶ Start Trip'; btn.classList.remove('trip-active'); }
   location.hash = '';
@@ -773,8 +761,23 @@ window.addEventListener('load', () => {
    mandatory stop arrivals/departures and dwell times.
 ═══════════════════════════════════════════════════════════ */
 
-let currentTripId   = null;
+let currentTripId    = null;
 let _routeStopsCache = null;
+let _activeRouteKey  = null;
+
+async function _pickRouteKey() {
+  // Use the cached active route key, or fetch first available from backend
+  if (_activeRouteKey) return _activeRouteKey;
+  try {
+    const r = await fetch(`${BACKEND}/routes`, {signal: AbortSignal.timeout(2500)});
+    if (!r.ok) return null;
+    const d = await r.json();
+    const routes = d.data || [];
+    if (!routes.length) { alert('No routes configured on backend. Add one via POST /routes/config.'); return null; }
+    _activeRouteKey = routes[0].key;
+    return _activeRouteKey;
+  } catch { return null; }
+}
 
 async function tripAction() {
   if (!curBus) return;
@@ -791,23 +794,29 @@ async function tripAction() {
       if (d.status === 'ok') {
         const finishedId = currentTripId;
         currentTripId = null;
+        _activeRouteKey = null;
         if (btn) { btn.textContent = '▶ Start Trip'; btn.classList.remove('trip-active'); }
         _updateTripPanelEmpty();
         if (confirm('Trip ended! View full summary?')) showTripSummary(finishedId);
       }
     } catch { alert('Failed to end trip — check backend connection.'); }
   } else {
+    const routeKey = await _pickRouteKey();
+    if (!routeKey) return;
     try {
       const r = await fetch(`${BACKEND}/trip/start`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({dev_id: curBus, route_key: 'office_to_mogappair'}),
+        body: JSON.stringify({dev_id: curBus, route_key: routeKey}),
       });
       const d = await r.json();
       if (d.status === 'ok') {
-        currentTripId = d.trip_id;
+        currentTripId   = d.trip_id;
+        _activeRouteKey = d.route_key || routeKey;
         if (btn) { btn.textContent = '⏹ End Trip'; btn.classList.add('trip-active'); }
         updateTripPanel(curBus);
+      } else {
+        alert('Could not start trip: ' + (d.message || 'Unknown error'));
       }
     } catch { alert('Failed to start trip — check backend connection.'); }
   }
@@ -828,7 +837,11 @@ async function fetchRouteStops() {
     const r = await fetch(`${BACKEND}/routes`, {signal: AbortSignal.timeout(2000)});
     if (!r.ok) return [];
     const d = await r.json();
-    const route = (d.data || []).find(x => x.key === 'office_to_mogappair');
+    const routes = d.data || [];
+    // Use the active route key if known, otherwise first available route
+    const route = _activeRouteKey
+      ? routes.find(x => x.key === _activeRouteKey)
+      : routes[0];
     _routeStopsCache = route ? route.stops : [];
     return _routeStopsCache;
   } catch { return []; }
