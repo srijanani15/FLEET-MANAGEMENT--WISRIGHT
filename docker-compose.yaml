@@ -1,0 +1,60 @@
+# ---------------------------------------------------------------------------
+# Fleet Telematics — Coolify Docker Compose deployment
+#
+# One stack = the Flask app + its MySQL database.
+#   - app builds from telematics_backend/Dockerfile (gunicorn, port 5000)
+#   - mysql is bundled here, so you DON'T need a separate Coolify DB resource
+#   - the app reaches MySQL at hostname `mysql` (compose service name) — no
+#     copying internal hostnames around
+#
+# Coolify magic variables:
+#   SERVICE_PASSWORD_MYSQLROOT  -> Coolify generates a strong password ONCE and
+#                                  injects the same value into both services.
+#
+# You only set two things in Coolify's UI:
+#   1. DEVICE_TOKEN         (env var — must match bus_final.ino)
+#   2. the domain on the `app` service (Coolify detects port 5000 via `expose`)
+# ---------------------------------------------------------------------------
+
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${SERVICE_PASSWORD_MYSQLROOT}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-telematics}
+    volumes:
+      - mysql-data:/var/lib/mysql          # persistent — survives redeploys
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
+
+  app:
+    build:
+      context: ./telematics_backend       # build context = the subfolder
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      MYSQL_HOST: mysql                    # resolves to the mysql service above
+      MYSQL_USER: root
+      MYSQL_PASSWORD: ${SERVICE_PASSWORD_MYSQLROOT}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-telematics}
+      DEVICE_TOKEN: ${DEVICE_TOKEN}        # set this in Coolify → Environment Variables
+      NGROK_AUTHTOKEN: ""                  # empty on a real VPS — domain replaces ngrok
+    expose:
+      - "5000"                             # Coolify/Traefik routes the domain here
+    depends_on:
+      mysql:
+        condition: service_healthy         # wait for DB before starting the app
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:5000/health').status==200 else 1)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 45s
+
+volumes:
+  mysql-data:
