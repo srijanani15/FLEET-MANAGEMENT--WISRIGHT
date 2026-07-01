@@ -630,9 +630,17 @@ def post_telemetry():
 
     ts = time.time()
     execute(
-        "INSERT INTO telemetry (dev_id, lat, lon, speed_kmh, sos_active, timestamp) "
-        "VALUES (%s,%s,%s,%s,%s,%s)",
-        (dev_id, data["lat"], data["lon"], data["speed_kmh"], data["sos_active"], ts),
+        "INSERT INTO telemetry "
+        "(dev_id, lat, lon, speed_kmh, sos_active, timestamp, altitude, satellites, hdop, gps_date, gps_time) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+        (
+            dev_id, data["lat"], data["lon"], data["speed_kmh"], data["sos_active"], ts,
+            data.get("altitude"),
+            data.get("satellites"),
+            data.get("hdop"),
+            data.get("gps_date"),
+            data.get("gps_time"),
+        ),
     )
     run_geofence(dev_id, data["lat"], data["lon"], ts)
     _update_trip_tracking(dev_id, data["lat"], data["lon"], ts)
