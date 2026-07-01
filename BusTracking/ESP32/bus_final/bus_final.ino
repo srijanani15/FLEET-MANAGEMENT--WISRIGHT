@@ -390,39 +390,82 @@ void sim_logSignal() {
 }
 
 bool sim_waitRegistered(uint32_t timeoutMs = 90000) {
-  LOGLN(F("[SIM] Waiting for VI network registration..."));
+  LOGLN(F("[SIM] Waiting for VI network registration (CS + PS)..."));
   uint32_t start = millis();
 
+  bool csOk = false, psOk = false;
+
   while (millis() - start < timeoutMs) {
-    String r = sim_sendCapture("AT+CREG?");
-    if (r.indexOf(F(",1")) != -1) { LOGLN(F("[SIM] Registered (home network)"));  return true; }
-    if (r.indexOf(F(",5")) != -1) { LOGLN(F("[SIM] Registered (roaming)"));       return true; }
-    LOGF("[SIM] Not registered yet... %lu s\n", (millis() - start) / 1000);
+    // CS registration (voice/SMS) — AT+CREG
+    if (!csOk) {
+      String rc = sim_sendCapture("AT+CREG?");
+      if (rc.indexOf(F(",1")) != -1 || rc.indexOf(F(",5")) != -1) {
+        LOGLN(F("[SIM] CS registered (voice/SMS ready)"));
+        csOk = true;
+      }
+    }
+
+    // PS registration (LTE data) — try AT+CEREG first (LTE), fallback AT+CGREG (GPRS)
+    if (!psOk) {
+      String re = sim_sendCapture("AT+CEREG?");
+      if (re.indexOf(F(",1")) != -1 || re.indexOf(F(",5")) != -1) {
+        LOGLN(F("[SIM] LTE PS registered (data ready)"));
+        psOk = true;
+      } else {
+        String rg = sim_sendCapture("AT+CGREG?");
+        if (rg.indexOf(F(",1")) != -1 || rg.indexOf(F(",5")) != -1) {
+          LOGLN(F("[SIM] GPRS PS registered (data ready)"));
+          psOk = true;
+        }
+      }
+    }
+
+    if (csOk && psOk) return true;
+
+    LOGF("[SIM] CS:%s PS:%s — waiting... %lu s\n",
+         csOk ? "OK" : "wait", psOk ? "OK" : "wait",
+         (millis() - start) / 1000);
     delay(4000);
   }
 
-  LOGLN(F("[SIM] Network registration TIMEOUT"));
-  LOGLN(F("[SIM] Check: SIM inserted? VI coverage? Antenna connected?"));
-  return false;
+  LOGLN(F("[SIM] Registration TIMEOUT"));
+  if (!csOk) LOGLN(F("[SIM] CS failed — check SIM inserted, VI coverage, antenna"));
+  if (!psOk) LOGLN(F("[SIM] PS failed — data won't work even though calls/SMS may work"));
+  // Allow proceed if at least CS registered — data may still come up
+  return csOk;
 }
 
 bool sim_activateDataContext() {
+  // Explicitly attach to packet service before activating PDP context.
+  // Required on VI Vodafone — without this AT+CGACT silently fails.
+  LOGLN(F("[SIM] Attaching to packet service (AT+CGATT=1)..."));
+  if (!sim_sendExpect("AT+CGATT=1", "OK", 15000)) {
+    LOGLN(F("[SIM] CGATT=1 failed — retrying once..."));
+    delay(3000);
+    sim_sendExpect("AT+CGATT=1", "OK", 15000);
+  }
+  // Verify attach status
+  String attachSt = sim_sendCapture("AT+CGATT?");
+  LOGF("[SIM] Packet attach status: %s\n", attachSt.c_str());
+
   const char* apns[] = { SIM_APN, "vodafone", "portalnmms", "internet", nullptr };
 
   for (int i = 0; apns[i] != nullptr; i++) {
     LOGF("[SIM] Trying APN: %s\n", apns[i]);
     sim_sendExpect("AT+CGACT=0,1", "OK", 10000);
-    delay(800);
+    delay(1000);
 
     char cmd[80];
     snprintf(cmd, sizeof(cmd), "AT+CGDCONT=1,\"IP\",\"%s\"", apns[i]);
     if (!sim_sendExpect(cmd, "OK")) continue;
+    delay(500);
 
-    if (sim_sendExpect("AT+CGACT=1,1", "OK", 25000)) {
+    if (sim_sendExpect("AT+CGACT=1,1", "OK", 30000)) {
       LOGF("[SIM] Data context ACTIVE — APN: %s\n", apns[i]);
       return true;
     }
     LOGF("[SIM] APN failed: %s\n", apns[i]);
+    delay(2000);
   }
 
   LOGLN(F("[SIM] All APNs failed — no internet connection"));
